@@ -10,51 +10,51 @@ nc: 1 # number of classes (default: 1 for single class like aircraft)
 scales: # model compound scaling constants optimized for small target detection
   # [depth, width, max_channels] - increased depth and width for better small object feature extraction
   n: [0.50, 0.375, 1024] # Enhanced YOLOv8n for small targets
-  s: [0.67, 0.625, 1024] # Enhanced YOLOv8s for small targets  
-  m: [1.00, 0.875, 768]  # Enhanced YOLOv8m for small targets
-  l: [1.33, 1.125, 512]  # Enhanced YOLOv8l for small targets
-  x: [1.67, 1.375, 512]  # Enhanced YOLOv8x for small targets
+  s: [0.67, 0.625, 1024] # Enhanced YOLOv8s for small targets
+  m: [1.00, 0.875, 768] # Enhanced YOLOv8m for small targets
+  l: [1.33, 1.125, 512] # Enhanced YOLOv8l for small targets
+  x: [1.67, 1.375, 512] # Enhanced YOLOv8x for small targets
 
 # YOLOv8 backbone optimized for small objects
 backbone:
   # [from, repeats, module, args]
-  - [-1, 1, Conv, [32, 3, 2]]  # 0-P1/2 - reduced initial channels to preserve fine details
-  - [-1, 1, Conv, [64, 3, 2]]  # 1-P2/4 - gradual channel increase
-  - [-1, 3, C2f, [64, True]]   # 2 - enhanced feature extraction at P2
+  - [-1, 1, Conv, [32, 3, 2]] # 0-P1/2 - reduced initial channels to preserve fine details
+  - [-1, 1, Conv, [64, 3, 2]] # 1-P2/4 - gradual channel increase
+  - [-1, 3, C2f, [64, True]] # 2 - enhanced feature extraction at P2
   - [-1, 1, Conv, [128, 3, 2]] # 3-P3/8
-  - [-1, 6, C2f, [128, True]]  # 4 - more layers for better feature learning
+  - [-1, 6, C2f, [128, True]] # 4 - more layers for better feature learning
   - [-1, 1, Conv, [256, 3, 2]] # 5-P4/16
-  - [-1, 6, C2f, [256, True]]  # 6
+  - [-1, 6, C2f, [256, True]] # 6
   - [-1, 1, Conv, [512, 3, 2]] # 7-P5/32
-  - [-1, 3, C2f, [512, True]]  # 8 - reduced channels to balance computation
-  - [-1, 1, SPPF, [512, 5]]    # 9 - spatial pyramid pooling
+  - [-1, 3, C2f, [512, True]] # 8 - reduced channels to balance computation
+  - [-1, 1, SPPF, [512, 5]] # 9 - spatial pyramid pooling
 
 # YOLOv8 head with P2 detection layer for small objects
 head:
   # Upsampling path from P5 to P4
-  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 10
-  - [[-1, 6], 1, Concat, [1]]  # 11 - cat backbone P4
-  - [-1, 3, C2f, [256]]        # 12
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 10
+  - [[-1, 6], 1, Concat, [1]] # 11 - cat backbone P4
+  - [-1, 3, C2f, [256]] # 12
 
-  # Upsampling path from P4 to P3  
-  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 13
-  - [[-1, 4], 1, Concat, [1]]  # 14 - cat backbone P3
-  - [-1, 3, C2f, [128]]        # 15 (P3/8-small)
+  # Upsampling path from P4 to P3
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 13
+  - [[-1, 4], 1, Concat, [1]] # 14 - cat backbone P3
+  - [-1, 3, C2f, [128]] # 15 (P3/8-small)
 
   # NEW: Upsampling path from P3 to P2 for tiny object detection
-  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 16
-  - [[-1, 2], 1, Concat, [1]]  # 17 - cat backbone P2  
-  - [-1, 3, C2f, [64]]         # 18 (P2/4-tiny) - new detection layer for very small objects
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 16
+  - [[-1, 2], 1, Concat, [1]] # 17 - cat backbone P2
+  - [-1, 3, C2f, [64]] # 18 (P2/4-tiny) - new detection layer for very small objects
 
   # Downsampling path from P3 to P4
-  - [15, 1, Conv, [128, 3, 2]]  # 19
-  - [[-1, 12], 1, Concat, [1]]  # 20 - cat head P4
-  - [-1, 3, C2f, [256]]         # 21 (P4/16-medium)
+  - [15, 1, Conv, [128, 3, 2]] # 19
+  - [[-1, 12], 1, Concat, [1]] # 20 - cat head P4
+  - [-1, 3, C2f, [256]] # 21 (P4/16-medium)
 
   # Downsampling path from P4 to P5
-  - [-1, 1, Conv, [256, 3, 2]]  # 22
-  - [[-1, 9], 1, Concat, [1]]   # 23 - cat head P5
-  - [-1, 3, C2f, [512]]         # 24 (P5/32-large)
+  - [-1, 1, Conv, [256, 3, 2]] # 22
+  - [[-1, 9], 1, Concat, [1]] # 23 - cat head P5
+  - [-1, 3, C2f, [512]] # 24 (P5/32-large)
 
   # Multi-scale detection with 4 output layers including P2 for small objects
-  - [[18, 15, 21, 24], 1, Detect, [nc]]  # Detect(P2, P3, P4, P5) - 4-scale detection
+  - [[18, 15, 21, 24], 1, Detect, [nc]] # Detect(P2, P3, P4, P5) - 4-scale detection
