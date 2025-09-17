@@ -147,6 +147,7 @@ mydata/
 yolo_dataset/
 vedio/
 tracking_results/
+**/runs/
 
 wandb/
 .DS_Store
