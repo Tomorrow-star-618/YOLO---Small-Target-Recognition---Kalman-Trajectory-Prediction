@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 
-复杂云层背景干扰下的红外小目标时空关联检测与跟踪
+复杂云层背景干扰下的红外小目标时空关联检测与跟踪.
 ================================================
 
 #需求描述：目前要做一个复杂云背景干扰下检测红外小目标的项目，该项目需要输入mp4格式的灰度图像视频，视频里面有着比较复杂的动态云层背景，
@@ -78,67 +77,68 @@
 
 """
 
-import os
-import sys
-import math
-import time
 import csv
+import math
+import os
 from collections import deque
 from dataclasses import dataclass
-import numpy as np
+
 import cv2
+import numpy as np
 
 # ------------------------- 可选：尝试导入YOLOv11x（若失败则回退传统检测） -------------------------
 HAVE_ULTRALYTICS = False
 try:
     from ultralytics import YOLO  # pip install ultralytics
+
     HAVE_ULTRALYTICS = True
 except Exception as e:
     print("[WARN] 未检测到ultralytics库，YOLOv8推理将被禁用，改用传统检测回退：", e)
 
 # ================================ 用户需按需修改的路径 ================================
-#INPUT_VIDEO = "complex-background.mp4"                 # 输入灰度视频路径（mp4）
-INPUT_VIDEO = "vedio/10s_24s_short.mp4"    # 输入灰度视频路径（mp4）
-OUTPUT_VIDEO = "runs/complex.mp4"       # 输出可视化视频
-OUTPUT_CSV = "runs/complex.csv"     # 输出轨迹CSV
-YOLO_WEIGHTS = "otherplan/yolo11x.pt"   # 你的改进YOLOv8权重（已含P2/无跨步）
+# INPUT_VIDEO = "complex-background.mp4"                 # 输入灰度视频路径（mp4）
+INPUT_VIDEO = "video/10s_24s_short.mp4"  # 输入灰度视频路径（mp4）
+OUTPUT_VIDEO = "runs/complex.mp4"  # 输出可视化视频
+OUTPUT_CSV = "runs/complex.csv"  # 输出轨迹CSV
+YOLO_WEIGHTS = "otherplan/yolo11x.pt"  # 你的改进YOLOv8权重（已含P2/无跨步）
 
 # 若你的YOLO权重还未就绪，也可以先用传统回退模式跑通流程。
 
 # ================================ 可调参数（检测/跟踪） ================================
-YOLO_CONF_THR = 0.15   # YOLO最小置信度
-YOLO_IOU_THR = 0.45   # YOLO NMS IoU阈值
-YOLO_IMG_SIZE = 640    # YOLO推理分辨率（会自动按需缩放）
+YOLO_CONF_THR = 0.15  # YOLO最小置信度
+YOLO_IOU_THR = 0.45  # YOLO NMS IoU阈值
+YOLO_IMG_SIZE = 640  # YOLO推理分辨率（会自动按需缩放）
 
 # 传统增强与几何约束参数（仅在回退/辅助过滤时使用）
-TOPHAT_KSIZE = 6        # 顶帽（强调亮小点），奇数
-LOG_GAUSS_SIGMA = 1.2   # LoG中的高斯sigma
-BINARY_PRC = 98         # 二值化的分位阈值（0-100），越高越严格
-MIN_AREA_RATIO = 1e-6   # 最小面积（相对帧面积）
-MAX_AREA_RATIO = 2e-4   # 最大面积（相对帧面积）
-MIN_CIRCULARITY = 0.55   # 圆度阈值（4πA/P^2），越接近1越圆
-ASPECT_TOL = 0.6         # 宽高比容忍（min(w,h)/max(w,h) ≥ 该值）
+TOPHAT_KSIZE = 6  # 顶帽（强调亮小点），奇数
+LOG_GAUSS_SIGMA = 1.2  # LoG中的高斯sigma
+BINARY_PRC = 98  # 二值化的分位阈值（0-100），越高越严格
+MIN_AREA_RATIO = 1e-6  # 最小面积（相对帧面积）
+MAX_AREA_RATIO = 2e-4  # 最大面积（相对帧面积）
+MIN_CIRCULARITY = 0.55  # 圆度阈值（4πA/P^2），越接近1越圆
+ASPECT_TOL = 0.6  # 宽高比容忍（min(w,h)/max(w,h) ≥ 该值）
 
 # 卡尔曼与切换参数
-MAX_COAST = 30            # 允许纯预测的最大连续帧数（避免长期漂移）
-PROC_NOISE_POS = 1.0      # 过程噪声-位置（像素）
-PROC_NOISE_VEL = 5.0      # 过程噪声-速度（像素/帧）
-MEAS_NOISE_POS = 3.0      # 观测噪声-位置（像素）
-GATE_DIST_PX = 50.0       # 观测-预测的门控距离（像素）
-DIR_PRIOR_GAIN = 0.6      # 方向先验增益（从右向左更优，分数×>1；反向则×<1）
+MAX_COAST = 30  # 允许纯预测的最大连续帧数（避免长期漂移）
+PROC_NOISE_POS = 1.0  # 过程噪声-位置（像素）
+PROC_NOISE_VEL = 5.0  # 过程噪声-速度（像素/帧）
+MEAS_NOISE_POS = 3.0  # 观测噪声-位置（像素）
+GATE_DIST_PX = 50.0  # 观测-预测的门控距离（像素）
+DIR_PRIOR_GAIN = 0.6  # 方向先验增益（从右向左更优，分数×>1；反向则×<1）
 
 # 可视化参数
-TRACE_LEN = 100    # 轨迹可视长度
+TRACE_LEN = 100  # 轨迹可视长度
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 # --------------------------------- 工具函数 ---------------------------------
+
 
 def ensure_dir(path: str):
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
 
 def normalize(img: np.ndarray) -> np.ndarray:
-    """把图像线性归一到[0,255]的uint8。"""
+    """把图像线性归一到[0,255]的uint8。."""
     img = img.astype(np.float32)
     mn, mx = float(img.min()), float(img.max())
     if mx - mn < 1e-6:
@@ -148,7 +148,7 @@ def normalize(img: np.ndarray) -> np.ndarray:
 
 
 def enhance_small_targets(gray: np.ndarray) -> np.ndarray:
-    """小目标增强：Top-hat + LoG + 局部对比，返回增强图（uint8）。"""
+    """小目标增强：Top-hat + LoG + 局部对比，返回增强图（uint8）。."""
     # Top-hat：突出亮小结构
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (TOPHAT_KSIZE, TOPHAT_KSIZE))
     toph = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, k)
@@ -167,8 +167,7 @@ def enhance_small_targets(gray: np.ndarray) -> np.ndarray:
 
 
 def classical_detect(gray: np.ndarray, frame_shape) -> list:
-    """传统回退检测：返回候选框列表[(x1,y1,x2,y2,score), ...]。
-       仅在无YOLO或权重缺失时启用，或作为YOLO输出的几何一致性过滤参考。"""
+    """传统回退检测：返回候选框列表[(x1,y1,x2,y2,score), ...]。 仅在无YOLO或权重缺失时启用，或作为YOLO输出的几何一致性过滤参考。."""
     H, W = frame_shape[:2]
     enh = enhance_small_targets(gray)
     # 高分像素阈值
@@ -196,7 +195,7 @@ def classical_detect(gray: np.ndarray, frame_shape) -> list:
         if aspect < ASPECT_TOL:
             continue
         # 以增强图的均值作为得分
-        patch = enh[y:y+h, x:x+w]
+        patch = enh[y : y + h, x : x + w]
         score = float(patch.mean())
         boxes.append((x, y, x + w, y + h, score))
         areas.append(area)
@@ -229,19 +228,16 @@ class Detection:
 
 
 class KalmanCV2D:
-    """2D恒速模型卡尔曼滤波器：x=[cx, cy, vx, vy]^T"""
+    """2D恒速模型卡尔曼滤波器：x=[cx, cy, vx, vy]^T."""
+
     def __init__(self, dt: float, proc_pos=PROC_NOISE_POS, proc_vel=PROC_NOISE_VEL, meas_pos=MEAS_NOISE_POS):
         self.dt = dt
-        self.F = np.array([[1, 0, dt, 0],
-                           [0, 1, 0, dt],
-                           [0, 0, 1,  0],
-                           [0, 0, 0,  1]], dtype=np.float32)
+        self.F = np.array([[1, 0, dt, 0], [0, 1, 0, dt], [0, 0, 1, 0], [0, 0, 0, 1]], dtype=np.float32)
         q = np.array([proc_pos, proc_pos, proc_vel, proc_vel], dtype=np.float32)
-        self.Q = np.diag(q*q)  # 过程噪声协方差
+        self.Q = np.diag(q * q)  # 过程噪声协方差
         r = np.array([meas_pos, meas_pos], dtype=np.float32)
-        self.R = np.diag(r*r)  # 观测噪声
-        self.H = np.array([[1, 0, 0, 0],
-                           [0, 1, 0, 0]], dtype=np.float32)
+        self.R = np.diag(r * r)  # 观测噪声
+        self.H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]], dtype=np.float32)
         self.x = None  # 状态
         self.P = None  # 协方差
 
@@ -290,7 +286,7 @@ class IRSmallTargetTracker:
         self.frame_idx = 0
 
     def direction_score(self, prev_cx, new_cx):
-        """方向先验得分：从右到左更高分（<1 惩罚，>1 奖励）。"""
+        """方向先验得分：从右到左更高分（<1 惩罚，>1 奖励）。."""
         if prev_cx is None:
             return 1.0
         dx = new_cx - prev_cx
@@ -303,8 +299,9 @@ class IRSmallTargetTracker:
 
         # YOLO候选
         if self.model is not None:
-            res = self.model.predict(frame_bgr, conf=YOLO_CONF_THR, iou=YOLO_IOU_THR,
-                                     imgsz=YOLO_IMG_SIZE, verbose=False)[0]
+            res = self.model.predict(
+                frame_bgr, conf=YOLO_CONF_THR, iou=YOLO_IOU_THR, imgsz=YOLO_IMG_SIZE, verbose=False
+            )[0]
             for b in res.boxes:
                 x1, y1, x2, y2 = b.xyxy[0].cpu().numpy().tolist()
                 conf = float(b.conf[0].cpu().numpy())
@@ -318,17 +315,17 @@ class IRSmallTargetTracker:
                 area = w * h
                 if area < MIN_AREA_RATIO * W * H or area > MAX_AREA_RATIO * W * H:
                     continue
-                ds = self.direction_score(prev_cx, 0.5*(x1+x2))
+                ds = self.direction_score(prev_cx, 0.5 * (x1 + x2))
                 adj_conf = conf * ds
-                cands.append(Detection(int(x1), int(y1), int(x2), int(y2), adj_conf, 'yolo'))
+                cands.append(Detection(int(x1), int(y1), int(x2), int(y2), adj_conf, "yolo"))
 
         # 传统候选（作为回退或补充）
         if len(cands) == 0:
             boxes = classical_detect(gray, gray.shape)
-            for (x1, y1, x2, y2, score) in boxes:
-                ds = self.direction_score(prev_cx, 0.5*(x1+x2))
+            for x1, y1, x2, y2, score in boxes:
+                ds = self.direction_score(prev_cx, 0.5 * (x1 + x2))
                 adj_conf = float(score / 255.0) * ds
-                cands.append(Detection(x1, y1, x2, y2, adj_conf, 'classical'))
+                cands.append(Detection(x1, y1, x2, y2, adj_conf, "classical"))
 
         # 取最高得分
         if len(cands) == 0:
@@ -344,7 +341,7 @@ class IRSmallTargetTracker:
         prev_cx = self.last_det.cx if self.last_det is not None else None
         det = self.pick_detection(frame_bgr, gray, prev_cx)
 
-        mode = 'predict'
+        mode = "predict"
         used_det = False
         if det is not None:
             # 若已有KF，用门控距离限制观测更新
@@ -353,7 +350,7 @@ class IRSmallTargetTracker:
                 dist = math.hypot(det.cx - px, det.cy - py)
                 if dist <= GATE_DIST_PX or self.miss_cnt >= 3:
                     self.kf.update(det.cx, det.cy)
-                    mode = 'detect'
+                    mode = "detect"
                     used_det = True
                     self.miss_cnt = 0
                 else:
@@ -364,7 +361,7 @@ class IRSmallTargetTracker:
                 # 初始化KF
                 self.kf = KalmanCV2D(self.dt)
                 self.kf.init(det.cx, det.cy)
-                mode = 'detect'
+                mode = "detect"
                 used_det = True
                 self.miss_cnt = 0
         else:
@@ -384,7 +381,7 @@ class IRSmallTargetTracker:
         # 可视化与记录
         draw_cx, draw_cy = None, None
         conf = det.conf if det is not None else 0.0
-        src = det.source if det is not None else 'none'
+        src = det.source if det is not None else "none"
 
         if self.kf is not None and self.kf.state is not None:
             cx, cy, vx, vy = self.kf.state
@@ -393,17 +390,17 @@ class IRSmallTargetTracker:
 
         # 绘制检测框
         if det is not None:
-            color = (0, 255, 0) if mode == 'detect' and used_det else (0, 180, 255)
+            color = (0, 255, 0) if mode == "detect" and used_det else (0, 180, 255)
             cv2.rectangle(vis, (det.x1, det.y1), (det.x2, det.y2), color, 2)
-            cv2.putText(vis, f"{src}: conf={conf:.2f}", (det.x1, max(0, det.y1-6)), FONT, 0.5, color, 1, cv2.LINE_AA)
+            cv2.putText(vis, f"{src}: conf={conf:.2f}", (det.x1, max(0, det.y1 - 6)), FONT, 0.5, color, 1, cv2.LINE_AA)
 
         # 绘制预测中心与轨迹
         if draw_cx is not None:
             cv2.circle(vis, (draw_cx, draw_cy), 4, (0, 0, 255), -1)
-            cv2.putText(vis, f"{mode}", (draw_cx+6, draw_cy-6), FONT, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
+            cv2.putText(vis, f"{mode}", (draw_cx + 6, draw_cy - 6), FONT, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
             # 轨迹线
-            #for i in range(1, len(self.trace)):
-                #cv2.line(vis, self.trace[i-1], self.trace[i], (0, 0, 255), 2)
+            # for i in range(1, len(self.trace)):
+            # cv2.line(vis, self.trace[i-1], self.trace[i], (0, 0, 255), 2)
 
         # 状态文字
         cv2.putText(vis, f"frame={self.frame_idx} miss={self.miss_cnt}", (10, 24), FONT, 0.7, (255, 255, 255), 2)
@@ -413,12 +410,18 @@ class IRSmallTargetTracker:
 
         # 写CSV
         t = self.frame_idx / max(1e-6, self.fps)
-        row = [self.frame_idx, f"{t:.3f}", mode, f"{conf:.3f}", src,
-               int(det.cx) if det is not None else -1,
-               int(det.cy) if det is not None else -1,
-               int(draw_cx) if draw_cx is not None else -1,
-               int(draw_cy) if draw_cy is not None else -1,
-               self.miss_cnt]
+        row = [
+            self.frame_idx,
+            f"{t:.3f}",
+            mode,
+            f"{conf:.3f}",
+            src,
+            int(det.cx) if det is not None else -1,
+            int(det.cy) if det is not None else -1,
+            int(draw_cx) if draw_cx is not None else -1,
+            int(draw_cy) if draw_cy is not None else -1,
+            self.miss_cnt,
+        ]
         self.csv_writer.writerow(row)
 
         # 终止条件：长期丢失
@@ -444,14 +447,15 @@ def main():
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
 
     # 视频写出器
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(OUTPUT_VIDEO, fourcc, fps, (W, H))
 
     # CSV写出器
-    csv_f = open(OUTPUT_CSV, 'w', newline='')
+    csv_f = open(OUTPUT_CSV, "w", newline="")
     csv_writer = csv.writer(csv_f)
-    csv_writer.writerow(["frame", "time_sec", "mode", "conf", "src",
-                         "det_cx", "det_cy", "pred_cx", "pred_cy", "miss_cnt"])
+    csv_writer.writerow(
+        ["frame", "time_sec", "mode", "conf", "src", "det_cx", "det_cy", "pred_cx", "pred_cy", "miss_cnt"]
+    )
 
     # 尝试加载YOLO
     yolo_model = None
