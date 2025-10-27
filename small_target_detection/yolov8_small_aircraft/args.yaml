@@ -10,7 +10,7 @@ imgsz: 640
 save: true
 save_period: 10
 cache: false
-device: '0'
+device: "0"
 workers: 8
 project: small_target_detection
 name: yolov8_small_aircraft
