@@ -220,7 +220,7 @@ class SegmentationValidator(DetectionValidator):
             predn (Dict[str, torch.Tensor]): Predictions containing bboxes, masks, confidence scores, and classes.
             pbatch (Dict[str, Any]): Batch dictionary containing 'imgsz', 'ori_shape', 'ratio_pad', and 'im_file'.
         """
-        from faster_coco_eval.core.mask import encode  # noqa
+        from faster_coco_eval.core.mask import encode
 
         def single_encode(x):
             """Encode predicted masks as RLE and append results to jdict."""
