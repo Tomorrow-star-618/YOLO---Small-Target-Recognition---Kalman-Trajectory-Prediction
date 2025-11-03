@@ -14,16 +14,16 @@ from .conv import Conv
 from .utils import _get_clones, inverse_sigmoid, multi_scale_deformable_attn_pytorch
 
 __all__ = (
-    "TransformerEncoderLayer",
-    "TransformerLayer",
-    "TransformerBlock",
-    "MLPBlock",
-    "LayerNorm2d",
     "AIFI",
+    "MLP",
     "DeformableTransformerDecoder",
     "DeformableTransformerDecoderLayer",
+    "LayerNorm2d",
+    "MLPBlock",
     "MSDeformAttn",
-    "MLP",
+    "TransformerBlock",
+    "TransformerEncoderLayer",
+    "TransformerLayer",
 )
 
 
@@ -390,7 +390,7 @@ class MLP(nn.Module):
         super().__init__()
         self.num_layers = num_layers
         h = [hidden_dim] * (num_layers - 1)
-        self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+        self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim, *h], [*h, output_dim]))
         self.sigmoid = sigmoid
         self.act = act()
 
