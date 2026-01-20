@@ -148,6 +148,8 @@ yolo_dataset/
 vedio/
 tracking_results/
 **/runs/
+v11 - new/dataset/
+v11-new/dataset/
 
 wandb/
 .DS_Store

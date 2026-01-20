@@ -1,0 +1,64 @@
+# Ultralytics YOLO11 Ultra Small Target Detection Configuration
+# 专门针对超小目标检测的YOLO11配置
+# 优化策略：
+# 1. 添加P2层检测头（更高分辨率）
+# 2. 增强浅层特征融合
+# 3. 优化锚框配置
+
+# Parameters
+nc: 1  # 类别数量（飞机）
+scales: # model compound scaling constants
+  # [depth, width, max_channels]
+  n: [0.50, 0.25, 1024] # summary: 181 layers, 2624080 parameters, 2624064 gradients, 6.6 GFLOPs
+  s: [0.50, 0.50, 1024] # summary: 181 layers, 9458752 parameters, 9458736 gradients, 21.7 GFLOPs
+  m: [0.50, 1.00, 512] # summary: 231 layers, 20114688 parameters, 20114672 gradients, 68.5 GFLOPs
+  l: [1.00, 1.00, 512] # summary: 357 layers, 25372160 parameters, 25372144 gradients, 87.6 GFLOPs
+  x: [1.00, 1.50, 512] # summary: 357 layers, 56966176 parameters, 56966160 gradients, 196.0 GFLOPs
+
+# YOLO11 backbone (保持不变，专注于检测头改进)
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [64, 3, 2]] # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]] # 1-P2/4
+  - [-1, 2, C3k2, [256, False, 0.25]] # 2
+  - [-1, 1, Conv, [256, 3, 2]] # 3-P3/8
+  - [-1, 2, C3k2, [512, False, 0.25]] # 4
+  - [-1, 1, Conv, [512, 3, 2]] # 5-P4/16
+  - [-1, 2, C3k2, [512, True]] # 6
+  - [-1, 1, Conv, [1024, 3, 2]] # 7-P5/32
+  - [-1, 2, C3k2, [1024, True]] # 8
+  - [-1, 1, SPPF, [1024, 5]] # 9
+  - [-1, 2, C2PSA, [1024]] # 10
+
+# YOLO11 Ultra Small Target Detection Head
+# 改进点：添加P2检测层，增强小目标检测能力
+head:
+  # 原有的上采样路径
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 11
+  - [[-1, 6], 1, Concat, [1]] # 12 cat backbone P4
+  - [-1, 2, C3k2, [512, False]] # 13
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 14
+  - [[-1, 4], 1, Concat, [1]] # 15 cat backbone P3
+  - [-1, 2, C3k2, [256, False]] # 16 (P3/8-small)
+
+  # 新增：继续上采样到P2层（超小目标检测）
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 17
+  - [[-1, 2], 1, Concat, [1]] # 18 cat backbone P2
+  - [-1, 2, C3k2, [128, False]] # 19 (P2/4-ultra-small)
+
+  # 下采样路径
+  - [-1, 1, Conv, [128, 3, 2]] # 20
+  - [[-1, 16], 1, Concat, [1]] # 21 cat head P3
+  - [-1, 2, C3k2, [256, False]] # 22 (P3/8-small)
+
+  - [-1, 1, Conv, [256, 3, 2]] # 23
+  - [[-1, 13], 1, Concat, [1]] # 24 cat head P4
+  - [-1, 2, C3k2, [512, False]] # 25 (P4/16-medium)
+
+  - [-1, 1, Conv, [512, 3, 2]] # 26
+  - [[-1, 10], 1, Concat, [1]] # 27 cat head P5
+  - [-1, 2, C3k2, [1024, True]] # 28 (P5/32-large)
+
+  # 四个检测头：P2, P3, P4, P5 (包含超小目标检测层)
+  - [[19, 22, 25, 28], 1, Detect, [nc]] # Detect(P2, P3, P4, P5)
