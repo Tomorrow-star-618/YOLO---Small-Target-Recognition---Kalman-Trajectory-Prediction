@@ -3,7 +3,44 @@
 
 """
 目标丢失区域梯度分析工具
-使用梯度幅值法分析目标丢失区域，输出带中心点的可视化矩阵图像
+批量分析丢失目标的ROI图像，生成可视化矩阵和中心点标记
+
+====================================
+命令行参数 / Parameters
+====================================
+
+可选参数:
+  --input <PATH>        输入图像目录 (默认: target_loss_patches/)
+  --output <PATH>       输出结果目录 (默认: target_loss_patches/output/)
+  --roi-size <INT>      ROI区域大小 (默认: 5)
+  --max <INT>           最多处理图像数量，0=全部
+
+====================================
+使用示例 / Examples
+====================================
+
+# 处理全部图像
+python target_loss_gradient_analyzer.py
+
+# 指定输入输出目录
+python target_loss_gradient_analyzer.py --input patches/ --output results/
+
+# 限制处理数量
+python target_loss_gradient_analyzer.py --max 10
+
+====================================
+输出结果 / Output
+====================================
+
+结果保存在: target_loss_patches/output/
+  ├── 原文件名_analysis.png          # 可视化分析图（含灰度矩阵）
+  └── analysis_summary.txt            # 汇总报告
+
+可视化包含:
+  ├── 原始灰度图 + ROI位置标记
+  └── ROI区域矩阵 + 数值标注
+
+用途: 分析丢失目标样本，评估梯度法ROI选择效果
 """
 
 import cv2
@@ -95,7 +132,7 @@ class GradientROIAnalyzer:
         else:
             output_path = Path(image_path).parent / 'output'
             
-        output_path.mkdir(exist_ok=True)
+        output_path.mkdir(parents=True, exist_ok=True)
         
         # 提取原始文件名
         original_name = Path(image_path).stem

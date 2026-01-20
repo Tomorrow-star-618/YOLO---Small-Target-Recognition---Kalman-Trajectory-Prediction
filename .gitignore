@@ -143,13 +143,9 @@ dmypy.json
 # datasets and projects (ignore /datasets dir at root only to allow for docs/en/datasets dir)
 /datasets
 runs/
-mydata/
-yolo_dataset/
 vedio/
-tracking_results/
 **/runs/
-v11 - new/dataset/
-v11-new/dataset/
+dataset/
 
 wandb/
 .DS_Store

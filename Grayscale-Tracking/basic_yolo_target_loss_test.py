@@ -2,8 +2,59 @@
 # -*- coding: utf-8 -*-
 
 """
-YOLO基础推理测试 - 目标丢失检测与方框提取
-当目标连续丢失5帧时，保存连续5张以丢失位置为中心的25x25像素方框
+YOLO目标丢失检测工具
+自动检测目标丢失事件并保存丢失位置的ROI图像块
+
+====================================
+功能说明 / Features
+====================================
+
+✓ YOLO实时检测并追踪视频中的目标
+✓ 自动检测目标连续丢失事件（默认5帧）
+✓ 批量保存丢失位置的ROI图像块（40x40像素）
+✓ 生成处理统计报告
+
+====================================
+命令行参数 / Parameters
+====================================
+
+必需参数:
+  --video, -v <PATH>           输入视频路径
+
+可选参数:
+  --model, -m <PATH>           YOLO模型路径
+                              (默认: v11-new/train/yolo11s_ultra_small_aircraft/weights/best.pt)
+  --output, -o <PATH>          输出目录 (默认: target_loss_patches)
+  --conf <FLOAT>               置信度阈值 (默认: 0.5)
+  --lost-frames <INT>          丢失帧数阈值 (默认: 5)
+  --save-count <INT>           每次丢失保存图像数量 (默认: 5)
+  --patch-size <INT>           ROI方块尺寸 (默认: 40)
+
+====================================
+使用示例 / Examples
+====================================
+
+# 基本使用
+python basic_yolo_target_loss_test.py --video test.mp4
+
+# 指定模型和输出目录
+python basic_yolo_target_loss_test.py --video test.mp4 --model custom.pt --output patches/
+
+# 自定义参数
+python basic_yolo_target_loss_test.py --video test.mp4 --lost-frames 3 --patch-size 30
+
+
+
+====================================
+输出目录 / Output
+====================================
+
+结果保存在: target_loss_patches/ (或指定目录)
+  ├── 时间戳_秒数_帧数_轨迹ID_img1_位置.png
+  ├── 时间戳_秒数_帧数_轨迹ID_img2_位置.png
+  └── ...
+
+用途: 收集目标丢失样本，用于灰度预测算法研究
 """
 
 import cv2
@@ -14,17 +65,22 @@ import time
 from datetime import datetime
 import os
 from collections import defaultdict, deque
+import argparse
 
 class YOLOTargetLossDetector:
     """YOLO目标丢失检测器"""
     
-    def __init__(self, model_path, save_dir="target_loss_patches"):
+    def __init__(self, model_path, save_dir="target_loss_patches", 
+                 lost_frames_threshold=5, save_frames_count=5, patch_size=40):
         """
         初始化检测器
         
         Args:
             model_path: YOLO模型路径
             save_dir: 保存方框的目录
+            lost_frames_threshold: 连续丢失多少帧触发保存
+            save_frames_count: 每次保存的图像数量
+            patch_size: ROI方块尺寸
         """
         print(f"🔥 加载YOLO模型: {model_path}")
         self.model = YOLO(model_path)
@@ -40,9 +96,9 @@ class YOLOTargetLossDetector:
         self.fps = 30  # 默认fps，后续会从视频中获取
         
         # 参数设置
-        self.lost_frames_threshold = 5  # 连续丢失5帧触发保存
-        self.save_frames_count = 5      # 保存5张连续图像
-        self.patch_size = 25            # 方框尺寸
+        self.lost_frames_threshold = lost_frames_threshold  # 连续丢失帧数阈值
+        self.save_frames_count = save_frames_count          # 保存图像数量
+        self.patch_size = patch_size                        # 方框尺寸
         
         # 统计信息
         self.stats = {
@@ -334,36 +390,83 @@ class YOLOTargetLossDetector:
 
 def main():
     """主函数"""
-    # 配置路径
-    video_path = "/home/mingxing/worksapce/ultralytics/vedio/short.mp4"
-    model_path = "/home/mingxing/worksapce/ultralytics/small_target_detection/yolov8_small_aircraft/weights/best.pt"
+    parser = argparse.ArgumentParser(
+        description='YOLO目标丢失检测工具 - 自动检测并保存丢失位置的ROI图像',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    # 必需参数
+    parser.add_argument('--video', '-v', type=str, required=True,
+                       help='输入视频文件路径 (必填)')
+    
+    # 可选参数
+    parser.add_argument('--model', '-m', type=str,
+                       default='../v11-new/train/yolo11s_ultra_small_aircraft/weights/best.pt',
+                       help='YOLO模型文件路径 (默认: v11-new/train/yolo11s_ultra_small_aircraft/weights/best.pt)')
+    
+    parser.add_argument('--output', '-o', type=str, default='target_loss_patches',
+                       help='输出目录路径 (默认: target_loss_patches)')
+    
+    parser.add_argument('--conf', type=float, default=0.5,
+                       help='YOLO检测置信度阈值 (默认: 0.5)')
+    
+    parser.add_argument('--lost-frames', type=int, default=5,
+                       help='连续丢失多少帧触发保存 (默认: 5)')
+    
+    parser.add_argument('--save-count', type=int, default=5,
+                       help='每次丢失保存的图像数量 (默认: 5)')
+    
+    parser.add_argument('--patch-size', type=int, default=40,
+                       help='ROI方块尺寸 (默认: 40)')
+    
+    args = parser.parse_args()
     
     # 检查文件是否存在
-    if not Path(video_path).exists():
-        print(f"❌ 视频文件不存在: {video_path}")
-        return
+    video_path = Path(args.video)
+    if not video_path.exists():
+        print(f"❌ 视频文件不存在: {args.video}")
+        return 1
     
-    if not Path(model_path).exists():
-        print(f"❌ 模型文件不存在: {model_path}")
-        return
+    model_path = Path(args.model)
+    if not model_path.exists():
+        print(f"❌ 模型文件不存在: {args.model}")
+        return 1
+    
+    print(f"\n{'='*60}")
+    print(f"🎬 YOLO目标丢失检测工具")
+    print(f"{'='*60}")
+    print(f"📹 视频路径: {args.video}")
+    print(f"🤖 模型路径: {args.model}")
+    print(f"📁 输出目录: {args.output}")
+    print(f"🎯 置信度阈值: {args.conf}")
+    print(f"⏱️  丢失帧数阈值: {args.lost_frames}帧")
+    print(f"💾 每次保存数量: {args.save_count}张")
+    print(f"📐 ROI方块尺寸: {args.patch_size}x{args.patch_size}")
+    print(f"{'='*60}\n")
     
     try:
         # 创建检测器
         detector = YOLOTargetLossDetector(
-            model_path=model_path,
-            save_dir="target_loss_patches"
+            model_path=str(model_path),
+            save_dir=args.output,
+            lost_frames_threshold=args.lost_frames,
+            save_frames_count=args.save_count,
+            patch_size=args.patch_size
         )
         
         # 处理视频
         detector.process_video(
-            video_path=video_path,
-            conf_threshold=0.5
+            video_path=str(video_path),
+            conf_threshold=args.conf
         )
+        
+        return 0
         
     except Exception as e:
         print(f"❌ 处理过程中出现错误: {e}")
         import traceback
         traceback.print_exc()
+        return 1
 
 if __name__ == "__main__":
-    main()
+    exit(main())

@@ -1,7 +1,46 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 """
-改进的梯度幅值可视化分析器
-支持可选的圆形热点法对比分析
+梯度幅值ROI可视化分析器
+分析红外图像中的最佳ROI位置，支持梯度法和圆形热点法对比
+
+====================================
+命令行参数 / Parameters
+====================================
+
+必需参数:
+  --image, -i <PATH>         输入图像路径
+
+可选参数:
+  --roi-size <INT>           ROI窗口大小 (默认: 5)
+  --output, -o <PATH>        输出目录
+  --enable-circular          启用圆形热点法对比分析
+
+====================================
+使用示例 / Examples
+====================================
+
+# 基本使用（仅梯度法）
+python gradient_magnitude_visualizer.py --image test.png
+
+# 启用双方法对比
+python gradient_magnitude_visualizer.py --image test.png --enable-circular
+python gradient_magnitude_visualizer.py --image /home/mingxing/worksapce/ultralytics/Grayscale-Tracking/target_loss_patches/192326_022s_26f_track03_img4_pos322x387.png --enable-circular
+
+# 自定义ROI大小
+python gradient_magnitude_visualizer.py --image test.png --roi-size 7
+
+====================================
+输出结果 / Output
+====================================
+
+结果保存在: gradient_visualization/
+  ├── 图像名_gradient_analysis.png     # 梯度法分析图
+  ├── 图像名_method_comparison.png     # 双方法对比图（可选）
+  └── 图像名_analysis_report.txt       # 详细分析报告
+
+功能: 可视化ROI选择过程，对比不同方法的效果
 """
 
 import cv2
@@ -46,7 +85,7 @@ class GradientMagnitudeAnalyzer:
         if output_dir is None:
             output_dir = Path(image_path).parent / "gradient_visualization"
         output_dir = Path(output_dir)
-        output_dir.mkdir(exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
         
         # 生成可视化结果
         self._create_visualizations(gray_image, analysis_result, image_path, output_dir, enable_circular)

@@ -3,7 +3,53 @@
 
 """
 ROI多方法对比分析器
-从30x30红外灰度矩阵中提取5x5感兴趣区域，使用多种方法找到最佳中心点
+对比8种不同方法在红外图像中查找最佳ROI中心点
+
+====================================
+命令行参数 / Parameters
+====================================
+
+可选参数:
+  --images <PATH> [PATH ...]  输入图像路径列表
+  --roi-size <INT>            ROI区域大小 (默认: 5)
+  --output <PATH>             输出结果文件名
+
+====================================
+分析方法 / Methods (8种)
+====================================
+
+1. max_value            最大值法 - 灰度值最高点
+2. mean_intensity       均值强度法 - ROI均值最大
+3. weighted_centroid    加权质心法 - 基于灰度加权计算
+4. gradient_magnitude   梯度幅值法 - 梯度和强度结合
+5. contrast_enhancement 对比度增强法 - 与背景对比最大
+6. local_variance       局部方差法 - 内部均匀外部差异大
+7. temperature_cluster  温度聚类法 - 高温像素密度高
+8. edge_density         边缘密度法 - 边缘密度和强度平衡
+
+====================================
+使用示例 / Examples
+====================================
+
+# 分析单张图像
+python roi_analysis_comparison.py --images test.png
+
+# 分析多张图像
+python roi_analysis_comparison.py --images img1.png img2.png img3.png
+
+# 自定义ROI大小和输出
+python roi_analysis_comparison.py --images test.png --roi-size 7 --output results.txt
+
+====================================
+输出结果 / Output
+====================================
+
+生成文件: roi_analysis_results.txt
+  ├── 各方法的中心坐标、置信度、ROI统计
+  ├── 方法详细描述
+  └── 推荐最佳方法
+
+用途: 对比不同ROI选择策略，选择最适合的方法
 """
 
 import cv2

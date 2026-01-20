@@ -2,68 +2,63 @@
 # -*- coding: utf-8 -*-
 
 """
-基于局部灰度值的目标追踪系统
-结合YOLO检测和灰度区域预测进行目标追踪
+红外小目标智能追踪系统
+结合YOLO11检测与灰度预测的目标追踪算法
 
-使用方法 / Usage:
------------------
-python grayscale_tracking_system.py --video <视频路径> [其他参数]
+====================================
+命令行参数 / Parameters
+====================================
 
-必需参数 / Required Arguments:
-  --video, -v <PATH>         输入视频文件路径 (必填)
+必需参数:
+  --video, -v <PATH>              输入视频路径
 
-可选参数 / Optional Arguments:
-  --model, -m <PATH>         YOLO模型文件路径
-                            默认: small_target_detection/yolov8_small_aircraft/weights/best.pt
-  --output, -o <PATH>        输出视频文件路径 (可选，默认自动生成)
-  --template, -t <STR>       局部灰度值模板 (可选，格式为数组字符串)
-  --test <START,END>         测试模式，指定强制丢失帧范围 (例如: 50,100)
-  --save-process             保存处理过程中的ROI图像和灰度矩阵数据
-  --max-prediction-frames <INT>  最大预测帧数，目标丢失后进行预测的最大帧数，避免漂移 (默认: 30)
-  --max-detections <INT>     最大检测目标数，只保留置信度最高的指定数量目标，避免干扰 (默认: 5)
+可选参数:
+  --model, -m <PATH>              YOLO模型路径 (默认: best.pt)
+  --output, -o <PATH>             输出视频文件名
+  --max-prediction-frames <INT>   最大预测帧数 (默认: 30, 0=纯检测模式)
+  --max-detections <INT>          最大追踪目标数 (默认: 5)
+  --test <START,END>              测试模式，强制丢失帧范围
+  --save-process                  保存处理过程数据
+  --template, -t <STR>            灰度模板 (可选)
 
-使用示例 / Examples:
-------------------
-# 基本使用 - 使用默认模型处理视频
-python grayscale_tracking_system.py --video vedio/test.mp4
+====================================
+使用示例 / Examples
+====================================
 
-# 指定模型和保存处理过程
-python grayscale_tracking_system.py --video vedio/test.mp4 --model yolo11x.pt --save-process
+# 基本使用
+python grayscale_tracking_system.py --video test.mp4
 
-# 测试模式 - 在指定帧范围强制目标丢失
-python grayscale_tracking_system.py --video vedio/test.mp4 --test 30,80
+# 纯检测模式（不启用预测）
+python grayscale_tracking_system.py --video test.mp4 --max-prediction-frames 0
 
-# 设置追踪参数 - 限制预测帧数和最大检测数
-python grayscale_tracking_system.py --video vedio/test.mp4 --max-prediction-frames 20 --max-detections 3
+# 自定义参数
+python grayscale_tracking_system.py --video test.mp4 --max-detections 3 --model custom.pt
 
-# 完整参数示例
-python grayscale_tracking_system.py \
-    --video /home/mingxing/worksapce/ultralytics/vedio/170s_240s_complex-background.mp4 \
-    --model /home/mingxing/worksapce/ultralytics/v11-new/train/yolo11s_ultra_small_aircraft/weights/best.pt \
-    --max-prediction-frames 0 \
-    --max-detections 10 
+====================================
+输出目录 / Output
+====================================
 
-输出说明 / Output:
-----------------
-程序将在 Grayscale-Tracking/runs/ 目录下自动创建以下结构:
-  视频名_日期时间/
-  ├── output-video/          # 输出的追踪视频
-  └── process/              # 处理过程文件 (如果启用 --save-process)
-      ├── roi_patches/      # ROI图像块
-      └── grayscale_data/   # 灰度矩阵数据和对比图
+结果保存在: Grayscale-Tracking/runs/视频名_时间戳/
+  ├── output-video/
+  │   ├── 视频名_tracked.mp4        # 追踪视频
+  │   └── tracking_statistics.txt   # 统计报告
+  └── process/ (可选)
+      ├── roi_patches/              # ROI图像
+      └── grayscale_data/           # 灰度数据
 
-功能特性 / Features:
-------------------
-✓ YOLO目标检测与灰度预测结合
-✓ GPU加速处理 (自动检测CUDA)  
-✓ 丢失后持续预测直到重新检测
-✓ 智能轨迹数量控制 (检测+预测总数不超过max_detections)
-✓ 基于优先级的轨迹管理 (置信度×时间衰减权重)
-✓ 最大预测帧数限制，避免漂移
-✓ 实时进度条和FPS显示
-✓ 自动目录结构管理
-✓ 可视化处理过程保存
-✓ 测试模式支持
+====================================
+核心功能 / Features
+====================================
+
+✓ YOLO11小目标检测 + 灰度预测混合追踪
+✓ 自适应关联距离 (50-150px动态调整)
+✓ 智能ID管理 (ID池复用 + 30帧冷却期)
+✓ 速度可视化 (绿色=正常, 黄色=干扰>50px/s)
+✓ 噪声过滤 (至少5帧连续检测才触发预测)
+✓ GPU加速 (~68 FPS)
+✓ 自动目录管理 (时间戳命名)
+
+详细文档: 项目根目录 PROJECT_GUIDE.md
 """
 
 import cv2
@@ -201,13 +196,12 @@ class GrayscaleTracker:
         results_dir.mkdir(exist_ok=True)
         
         output_video_dir = results_dir / "output-video"
-        process_dir = results_dir / "process"
-        
         output_video_dir.mkdir(exist_ok=True)
-        process_dir.mkdir(exist_ok=True)
         
-        # 如果需要保存处理过程，创建子目录
+        # 只有在需要保存处理过程时才创建process目录
+        process_dir = results_dir / "process"
         if self.save_process:
+            process_dir.mkdir(exist_ok=True)
             self.process_dir = process_dir
             self.roi_patches_dir = process_dir / "roi_patches"
             self.grayscale_data_dir = process_dir / "grayscale_data"
@@ -1718,7 +1712,7 @@ def main():
     """主函数"""
     parser = argparse.ArgumentParser(description='基于灰度值的目标追踪系统')
     parser.add_argument('--model', '-m', type=str, 
-                       default='small_target_detection/yolov8_small_aircraft/weights/best.pt',
+                       default='v11-new/train/yolo11s_ultra_small_aircraft/weights/best.pt',
                        help='YOLO模型路径')
     parser.add_argument('--video', '-v', type=str, required=True,
                        help='输入视频路径')
@@ -1750,15 +1744,6 @@ def main():
         print(f"❌ 视频文件不存在: {video_path}")
         return 1
     
-    # 设置输出路径
-    if args.output:
-        output_path = Path(args.output)
-    else:
-        output_dir = script_dir / "output-vedio"
-        output_dir.mkdir(exist_ok=True)
-        suffix = "_test" if args.test else ""
-        output_path = output_dir / f"tracked{suffix}_{video_path.name}"
-    
     try:
         # 创建追踪器
         tracker = GrayscaleTracker(
@@ -1778,8 +1763,8 @@ def main():
         else:
             print("ℹ️ 未提供灰度模板，使用基于梯度的预测方法")
         
-        # 处理视频
-        result_info = tracker.process_video(str(video_path), str(output_path) if args.output else None, test_mode=args.test)
+        # 处理视频（输出路径由process_video内部的create_results_directory自动管理）
+        result_info = tracker.process_video(str(video_path), str(args.output) if args.output else None, test_mode=args.test)
         
         print(f"\n🎉 追踪完成！")
         
